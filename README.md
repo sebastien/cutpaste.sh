@@ -24,10 +24,10 @@ alphanumeric string (with `.`, `-` and `_` supported).
 
 ## Quickstart
 
-To install
+To install:
 
 ```
-curl -o cutpaste https://raw.githubusercontent.com/sebastien/cutpaste.sh/refs/heads/main/bin/cutpaste && chmod +x cutpase
+curl -o cutpaste https://raw.githubusercontent.com/sebastien/cutpaste.sh/refs/heads/main/bin/cutpaste && chmod +x cutpaste
 mkdir ~/.local/bin; mv cutpaste ~/.local/bin
 ```
 
@@ -49,17 +49,23 @@ Commands:
 
 - `cutpaste list PATH [BLOCKISH…]` lists all blocks at the given path
 - `cutpaste get PATH BLOCK` get the current value for the given block
-- `cutpaste set PATH BLOCK [VALUE]` replaces the block with the given value (or stdin), outputing the result
+- `cutpaste set PATH BLOCK [VALUE]` replaces the block with the given value (or stdin), outputting the result
 - `cutpaste cut PATH [BLOCKISH…]` removes the block altogether, including separator
 - `cutpaste strip PATH [BLOCKISH…]` removes the block altogether, excluding separator
-- `cutpaste --version` shows the current version
 - `cutpaste help` shows the help message
+- `cutpaste --version` shows the current version
 
 Commands support the following options:
 
-- `-h|--help` to show the command help message
-- `-w|--overwrite` to overwrite the input (only for `set`, `cut` and `strip`)
-- `-d|--dry` for a dry run that only output the changes (diff format)
+- `-h|--help` shows the command help message
+- `-w|--overwrite` overwrites the input file in place for `set`, `cut` and `strip`
+- `-d|--dry` performs a dry run and prints a unified diff instead of writing or returning content
+
+Notes:
+
+- `PATH` may be `-` to read from stdin
+- `set - BLOCK VALUE` is supported for stdin input
+- `set - BLOCK` without `VALUE` is rejected because stdin cannot safely provide both the document and the replacement value
 
 
 ## Syntax
@@ -76,6 +82,5 @@ For `cutpaste` to recognise a block, it must:
 
 - Start with a `START` separator with a `$BLOCK`
 - No be contained within another `START` block separator
-- Explicitly end with an `END` separator wit the same `$BLOCK` name.
-
+- Explicitly end with an `END` separator with the same `$BLOCK` name.
 

@@ -2,10 +2,12 @@
 set -euo pipefail
 
 CUTPASTE_SEP="--8<--"
-CUTPASTE_VERSION="dev"
+CUTPASTE_VERSION="1.0.0"
 
 cutpaste_usage() {
-	cat <<'EOF'
+	cat <<EOF
+cutpaste $CUTPASTE_VERSION ― cut/paste/replace delimited blocks of text in files
+
 Usage:
   cutpaste list PATH [BLOCKISH...]
   cutpaste get PATH BLOCK
@@ -43,6 +45,7 @@ cutpaste_read_lines() {
 
 cutpaste_read_value_lines() {
 	local value="$1"
+	# shellcheck disable=SC2178
 	local -n _out="$2"
 	_out=()
 	if [ -z "$value" ]; then
@@ -79,7 +82,9 @@ cutpaste_show_diff() {
 
 cutpaste_parse_separator() {
 	local line="$1"
+	# shellcheck disable=SC2178
 	local -n _kind="$2"
+	# shellcheck disable=SC2178
 	local -n _name="$3"
 	local re='^[[:space:][:punct:]]*-{2,}8<-{2,}[[:space:]]+(START|END):([A-Za-z0-9._-]+)[[:space:]]*$'
 
@@ -102,6 +107,7 @@ cutpaste_blockish_match() {
 
 	local pattern
 	for pattern in "$@"; do
+		# shellcheck disable=SC2053
 		if [[ $name == $pattern ]]; then
 			return 0
 		fi
@@ -168,7 +174,7 @@ cutpaste_get() {
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				break
 			fi
-			if (( end_idx > idx + 1 )); then
+			if ((end_idx > idx + 1)); then
 				printf '%s\n' "${lines[@]:idx+1:end_idx-idx-1}"
 			fi
 			return 0
@@ -208,22 +214,21 @@ cutpaste_rewrite() {
 			fi
 
 			case "$mode" in
-				cut)
-					;;
-				strip)
-					out+=("${lines[$idx]}")
-					out+=("${lines[$end_idx]}")
-					;;
-				set)
-					out+=("${lines[$idx]}")
-					if [ "${#CUTPASTE_VALUE_LINES[@]}" -gt 0 ]; then
-						out+=("${CUTPASTE_VALUE_LINES[@]}")
-					fi
-					out+=("${lines[$end_idx]}")
-					;;
-				*)
-					cutpaste_fail "cutpaste: internal mode error"
-					;;
+			cut) ;;
+			strip)
+				out+=("${lines[$idx]}")
+				out+=("${lines[$end_idx]}")
+				;;
+			set)
+				out+=("${lines[$idx]}")
+				if [ "${#CUTPASTE_VALUE_LINES[@]}" -gt 0 ]; then
+					out+=("${CUTPASTE_VALUE_LINES[@]}")
+				fi
+				out+=("${lines[$end_idx]}")
+				;;
+			*)
+				cutpaste_fail "cutpaste: internal mode error"
+				;;
 			esac
 			idx="$end_idx"
 			continue
@@ -330,114 +335,141 @@ main() {
 	shift || true
 
 	case "$cmd" in
-		-h|--help|help|"")
-			cutpaste_usage
-			;;
-		--version|version)
-			printf 'cutpaste %s\n' "$CUTPASTE_VERSION"
-			;;
-		list)
-			[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: list requires PATH"
-			local path="$1"
-			shift
-			cutpaste_list "$path" "$@"
-			;;
-		get)
-			[ "$#" -eq 2 ] || cutpaste_fail "cutpaste: get requires PATH and BLOCK"
-			cutpaste_get "$1" "$2"
-			;;
-		set)
-			local overwrite="0"
-			local dry="0"
-			while [ "$#" -gt 0 ]; do
-				case "$1" in
-					-w|--overwrite) overwrite="1"; shift ;;
-					-d|--dry) dry="1"; shift ;;
-					-h|--help)
-						cutpaste_usage
-						return 0
-						;;
-					--) shift; break ;;
-					-) break ;;
-					-*)
-						cutpaste_fail "cutpaste: unknown option for set: $1"
-						;;
-					*)
-						break
-						;;
-				esac
-			done
-			[ "$#" -ge 2 ] || cutpaste_fail "cutpaste: set requires PATH and BLOCK"
-			local path="$1"
-			local block="$2"
-			shift 2
-			local value=""
-			if [ "$path" = "-" ] && [ "$#" -eq 0 ]; then
-				cutpaste_fail "cutpaste: set with PATH='-' requires VALUE as an argument"
-			fi
-			if [ "$#" -gt 0 ]; then
-				value="$1"
-			else
-				value="$(cat)"
-			fi
-			cutpaste_set "$path" "$block" "$value" "$overwrite" "$dry"
-			;;
-		cut)
-			local overwrite="0"
-			local dry="0"
-			while [ "$#" -gt 0 ]; do
-				case "$1" in
-					-w|--overwrite) overwrite="1"; shift ;;
-					-d|--dry) dry="1"; shift ;;
-					-h|--help)
-						cutpaste_usage
-						return 0
-						;;
-					--) shift; break ;;
-					-) break ;;
-					-*)
-						cutpaste_fail "cutpaste: unknown option for cut: $1"
-						;;
-					*)
-						break
-						;;
-				esac
-			done
-			[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: cut requires PATH"
-			local path="$1"
-			shift
-			cutpaste_rewrite "$path" cut "$overwrite" "$dry" "$@"
-			;;
-		strip)
-			local overwrite="0"
-			local dry="0"
-			while [ "$#" -gt 0 ]; do
-				case "$1" in
-					-w|--overwrite) overwrite="1"; shift ;;
-					-d|--dry) dry="1"; shift ;;
-					-h|--help)
-						cutpaste_usage
-						return 0
-						;;
-					--) shift; break ;;
-					-) break ;;
-					-*)
-						cutpaste_fail "cutpaste: unknown option for strip: $1"
-						;;
-					*)
-						break
-						;;
-				esac
-			done
-			[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: strip requires PATH"
-			local path="$1"
-			shift
-			cutpaste_rewrite "$path" strip "$overwrite" "$dry" "$@"
-			;;
-		*)
-			cutpaste_usage >&2
-			exit 1
-			;;
+	-h | --help | help | "")
+		cutpaste_usage
+		;;
+	--version | version)
+		printf 'cutpaste %s\n' "$CUTPASTE_VERSION"
+		;;
+	list)
+		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: list requires PATH"
+		local path="$1"
+		shift
+		cutpaste_list "$path" "$@"
+		;;
+	get)
+		[ "$#" -eq 2 ] || cutpaste_fail "cutpaste: get requires PATH and BLOCK"
+		cutpaste_get "$1" "$2"
+		;;
+	set)
+		local overwrite="0"
+		local dry="0"
+		while [ "$#" -gt 0 ]; do
+			case "$1" in
+			-w | --overwrite)
+				overwrite="1"
+				shift
+				;;
+			-d | --dry)
+				dry="1"
+				shift
+				;;
+			-h | --help)
+				cutpaste_usage
+				return 0
+				;;
+			--)
+				shift
+				break
+				;;
+			-) break ;;
+			-*)
+				cutpaste_fail "cutpaste: unknown option for set: $1"
+				;;
+			*)
+				break
+				;;
+			esac
+		done
+		[ "$#" -ge 2 ] || cutpaste_fail "cutpaste: set requires PATH and BLOCK"
+		local path="$1"
+		local block="$2"
+		shift 2
+		local value=""
+		if [ "$path" = "-" ] && [ "$#" -eq 0 ]; then
+			cutpaste_fail "cutpaste: set with PATH='-' requires VALUE as an argument"
+		fi
+		if [ "$#" -gt 0 ]; then
+			value="$1"
+		else
+			value="$(cat)"
+		fi
+		cutpaste_set "$path" "$block" "$value" "$overwrite" "$dry"
+		;;
+	cut)
+		local overwrite="0"
+		local dry="0"
+		while [ "$#" -gt 0 ]; do
+			case "$1" in
+			-w | --overwrite)
+				overwrite="1"
+				shift
+				;;
+			-d | --dry)
+				dry="1"
+				shift
+				;;
+			-h | --help)
+				cutpaste_usage
+				return 0
+				;;
+			--)
+				shift
+				break
+				;;
+			-) break ;;
+			-*)
+				cutpaste_fail "cutpaste: unknown option for cut: $1"
+				;;
+			*)
+				break
+				;;
+			esac
+		done
+		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: cut requires PATH"
+		local path="$1"
+		shift
+		cutpaste_rewrite "$path" cut "$overwrite" "$dry" "$@"
+		;;
+	strip)
+		local overwrite="0"
+		local dry="0"
+		while [ "$#" -gt 0 ]; do
+			case "$1" in
+			-w | --overwrite)
+				overwrite="1"
+				shift
+				;;
+			-d | --dry)
+				dry="1"
+				shift
+				;;
+			-h | --help)
+				cutpaste_usage
+				return 0
+				;;
+			--)
+				shift
+				break
+				;;
+			-) break ;;
+			-*)
+				cutpaste_fail "cutpaste: unknown option for strip: $1"
+				;;
+			*)
+				break
+				;;
+			esac
+		done
+		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: strip requires PATH"
+		local path="$1"
+		shift
+		cutpaste_rewrite "$path" strip "$overwrite" "$dry" "$@"
+		;;
+	*)
+		cutpaste_usage >&2
+		exit 1
+		;;
 	esac
 }
 

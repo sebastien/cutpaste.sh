@@ -1,16 +1,20 @@
 
 SOURCES_BIN=$(wildcard bin/*)
+MISE ?= mise
+MISE_EXEC=$(MISE) exec --
 USER?=$(shell whoami)
 HOME?=/home/$(USER)
 
 test:
-	@bash tests/harness.sh
+	@$(MISE_EXEC) bash tests/harness.sh
 
 lint:
-	@shellcheck -x $(SOURCES_BIN)
+	@$(MISE_EXEC) shellcheck -x $(SOURCES_BIN)
 
 fmt:
-	@shfmt -w $(SOURCES_BIN)
+	@$(MISE_EXEC) shfmt -w $(SOURCES_BIN)
+
+ci: test lint
 
 install:
 	@mkdir -p "$(HOME)/.local/bin"
