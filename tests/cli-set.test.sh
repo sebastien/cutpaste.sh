@@ -30,6 +30,17 @@ test-expect "$output" ""
 output="$(cat sample.txt)"
 test-expect "$output" $'a\n--8<-- START:block1\nNEW\n--8<-- END:block1\nb\n# --8<-- START:block2\nc\n# --8<-- END:block2'
 
+test-case "skips overwrite when content is unchanged"
+before_files="$(find . -maxdepth 1 -type f | sort)"
+before_mtime="$(stat -c %Y sample.txt)"
+sleep 1
+output="$("$BASE_PATH/bin/cutpaste" set -w sample.txt block1 NEW)"
+after_mtime="$(stat -c %Y sample.txt)"
+after_files="$(find . -maxdepth 1 -type f | sort)"
+test-expect "$output" ""
+test-expect "$after_mtime" "$before_mtime"
+test-expect "$after_files" "$before_files"
+
 test-case "indents replaced block content"
 cat >indented.txt <<'EOF'
   --8<-- START:block1

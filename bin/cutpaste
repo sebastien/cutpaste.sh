@@ -71,13 +71,17 @@ cutpaste_lines_to_text() {
 
 cutpaste_write_overwrite() {
 	local path="$1"
-	local text_path="$2"
+	local text="$2"
 
 	if [ "$path" = "-" ]; then
 		cutpaste_fail "cutpaste: cannot overwrite stdin"
 	fi
 
-	cat "$text_path" >"$path"
+	if [ -e "$path" ] && cmp -s "$path" <(printf '%s' "$text"); then
+		return 0
+	fi
+
+	printf '%s' "$text" >"$path"
 }
 
 cutpaste_show_diff() {
@@ -132,14 +136,17 @@ cutpaste_run_command_lines() {
 	local command="$1"
 	# shellcheck disable=SC2178
 	local -n _out="$2"
-	local tmp
-	tmp="$(mktemp)"
-	if ! bash -c "$command" >"$tmp"; then
-		rm -f "$tmp"
+	local coproc_pid coproc_fd
+	coproc bash -c "$command"
+	coproc_pid="$COPROC_PID"
+	coproc_fd="${COPROC[0]}"
+	if ! mapfile -t _out <&"$coproc_fd"; then
+		wait "$coproc_pid" || true
 		return 1
 	fi
-	mapfile -t _out <"$tmp"
-	rm -f "$tmp"
+	if ! wait "$coproc_pid"; then
+		return 1
+	fi
 }
 
 cutpaste_blockish_match() {
@@ -359,21 +366,16 @@ cutpaste_rewrite() {
 		out+=("${CUTPASTE_NEW_END}")
 	fi
 
-	local original_file result_file
-	original_file="$(mktemp)"
-	result_file="$(mktemp)"
-	cutpaste_lines_to_text lines >"$original_file"
-	cutpaste_lines_to_text out >"$result_file"
+	local result_text
+	printf -v result_text '%s\n' "${out[@]}"
 
 	if [ "$dry" = "1" ]; then
-		cutpaste_show_diff "$path" "$original_file" "$result_file"
+		cutpaste_show_diff "$path" <(cutpaste_lines_to_text lines) <(printf '%s' "$result_text")
 	elif [ "$overwrite" = "1" ]; then
-		cutpaste_write_overwrite "$path" "$result_file"
+		cutpaste_write_overwrite "$path" "$result_text"
 	else
-		cat "$result_file"
+		printf '%s' "$result_text"
 	fi
-
-	rm -f "$original_file" "$result_file"
 }
 
 cutpaste_update() {
@@ -431,21 +433,19 @@ cutpaste_update() {
 		out+=("${lines[$idx]}")
 	done
 
-	local original_file result_file
-	original_file="$(mktemp)"
-	result_file="$(mktemp)"
-	cutpaste_lines_to_text lines >"$original_file"
-	cutpaste_lines_to_text out >"$result_file"
-
 	if [ "$dry" = "1" ]; then
-		cutpaste_show_diff "$path" "$original_file" "$result_file"
+		local result_text
+		printf -v result_text '%s\n' "${out[@]}"
+		cutpaste_show_diff "$path" <(cutpaste_lines_to_text lines) <(printf '%s' "$result_text")
 	elif [ "$overwrite" = "1" ]; then
-		cutpaste_write_overwrite "$path" "$result_file"
+		local result_text
+		printf -v result_text '%s\n' "${out[@]}"
+		cutpaste_write_overwrite "$path" "$result_text"
 	else
-		cat "$result_file"
+		local result_text
+		printf -v result_text '%s\n' "${out[@]}"
+		printf '%s' "$result_text"
 	fi
-
-	rm -f "$original_file" "$result_file"
 }
 
 cutpaste_set() {
@@ -548,21 +548,19 @@ cutpaste_set() {
 		out+=("$CUTPASTE_NEW_END")
 	fi
 
-	local original_file result_file
-	original_file="$(mktemp)"
-	result_file="$(mktemp)"
-	cutpaste_lines_to_text lines >"$original_file"
-	cutpaste_lines_to_text out >"$result_file"
-
 	if [ "$dry" = "1" ]; then
-		cutpaste_show_diff "$path" "$original_file" "$result_file"
+		local result_text
+		printf -v result_text '%s\n' "${out[@]}"
+		cutpaste_show_diff "$path" <(cutpaste_lines_to_text lines) <(printf '%s' "$result_text")
 	elif [ "$overwrite" = "1" ]; then
-		cutpaste_write_overwrite "$path" "$result_file"
+		local result_text
+		printf -v result_text '%s\n' "${out[@]}"
+		cutpaste_write_overwrite "$path" "$result_text"
 	else
-		cat "$result_file"
+		local result_text
+		printf -v result_text '%s\n' "${out[@]}"
+		printf '%s' "$result_text"
 	fi
-
-	rm -f "$original_file" "$result_file"
 }
 
 main() {
