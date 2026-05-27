@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+#
+#               __                   __              __
+#   _______  __/ /_____  ____ ______/ /____    _____/ /_
+#  / ___/ / / / __/ __ \/ __ `/ ___/ __/ _ \  / ___/ __ \
+# / /__/ /_/ / /_/ /_/ / /_/ (__  ) /_/  __/ (__  ) / / /
+# \___/\__,_/\__/ .___/\__,_/____/\__/\___(_)____/_/ /_/
+#              /_/
+
 set -euo pipefail
 
 CUTPASTE_SEP="--8<--"
@@ -14,6 +22,7 @@ Usage:
   cutpaste set PATH BLOCK [VALUE]
   cutpaste cut PATH [BLOCKISH...]
   cutpaste strip PATH [BLOCKISH...]
+  cutpaste update PATH [BLOCKISH...]
   cutpaste help
   cutpaste --version
 
@@ -86,15 +95,40 @@ cutpaste_parse_separator() {
 	local -n _kind="$2"
 	# shellcheck disable=SC2178
 	local -n _name="$3"
-	local re='^[[:space:][:punct:]]*-{2,}8<-{2,}[[:space:]]+(START|END):([A-Za-z0-9._-]+)[[:space:]]*$'
+	local command_ref="${4-}"
+	if [ -n "$command_ref" ]; then
+		# shellcheck disable=SC2178
+		local -n _command="$command_ref"
+	fi
+	local re='^[[:space:][:punct:]]*-{2,}8<-{2,}[[:space:]]+(START|END):([A-Za-z0-9._-]+)([[:space:]]+--[[:space:]]+(.*))?[[:space:]]*$'
 
 	if [[ $line =~ $re ]]; then
 		_kind="${BASH_REMATCH[1]}"
 		_name="${BASH_REMATCH[2]}"
+		if [ -n "$command_ref" ]; then
+			_command="${BASH_REMATCH[4]:-}"
+		fi
+		if [ "$_kind" = "END" ] && [ -n "${BASH_REMATCH[3]:-}" ]; then
+			return 1
+		fi
 		return 0
 	fi
 
 	return 1
+}
+
+cutpaste_run_command_lines() {
+	local command="$1"
+	# shellcheck disable=SC2178
+	local -n _out="$2"
+	local tmp
+	tmp="$(mktemp)"
+	if ! bash -c "$command" >"$tmp"; then
+		rm -f "$tmp"
+		return 1
+	fi
+	mapfile -t _out <"$tmp"
+	rm -f "$tmp"
 }
 
 cutpaste_blockish_match() {
@@ -142,9 +176,10 @@ cutpaste_list() {
 	fi
 
 	declare -A seen=()
-	local idx kind name end_idx
+	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
-		if cutpaste_parse_separator "${lines[$idx]}" kind name && [ "$kind" = "START" ]; then
+		command=""
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ]; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				continue
 			fi
@@ -153,7 +188,11 @@ cutpaste_list() {
 			fi
 			if [ -z "${seen[$name]+x}" ]; then
 				seen["$name"]=1
-				printf '%s\n' "$name"
+				printf '%s' "$name"
+				if [ -n "$command" ]; then
+					printf ' -- %s' "$command"
+				fi
+				printf '\n'
 			fi
 			idx="$end_idx"
 		fi
@@ -168,9 +207,10 @@ cutpaste_get() {
 		cutpaste_fail "cutpaste: cannot read '$path'"
 	fi
 
-	local idx kind name end_idx
+	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
-		if cutpaste_parse_separator "${lines[$idx]}" kind name && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
+		command=""
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				break
 			fi
@@ -182,6 +222,28 @@ cutpaste_get() {
 	done
 
 	cutpaste_fail "cutpaste: block not found: $block"
+}
+
+cutpaste_find_block_command() {
+	local -n _lines="$1"
+	local block="$2"
+	local idx kind name command end_idx
+
+	for ((idx = 0; idx < ${#_lines[@]}; idx++)); do
+		command=""
+		if cutpaste_parse_separator "${_lines[$idx]}" kind name command && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
+			if ! end_idx="$(cutpaste_find_block_end "$1" "$idx" "$name")"; then
+				return 1
+			fi
+			if [ -n "$command" ]; then
+				printf '%s\n' "$command"
+				return 0
+			fi
+			return 1
+		fi
+	done
+
+	return 1
 }
 
 cutpaste_rewrite() {
@@ -205,9 +267,10 @@ cutpaste_rewrite() {
 	fi
 
 	local out=()
-	local idx kind name end_idx
+	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
-		if cutpaste_parse_separator "${lines[$idx]}" kind name && [ "$kind" = "START" ] && cutpaste_blockish_match "$name" "${patterns[@]}"; then
+		command=""
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && cutpaste_blockish_match "$name" "${patterns[@]}"; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				out+=("${lines[$idx]}")
 				continue
@@ -262,12 +325,77 @@ cutpaste_rewrite() {
 	rm -f "$original_file" "$result_file"
 }
 
+cutpaste_update() {
+	local path="$1"
+	local overwrite="$2"
+	local dry="$3"
+	shift 3
+	local patterns=("$@")
+	local lines=()
+	if [ "$path" = "-" ]; then
+		if ! cutpaste_read_lines "$path" lines; then
+			cutpaste_fail "cutpaste: cannot read stdin"
+		fi
+	else
+		if [ -e "$path" ]; then
+			if ! cutpaste_read_lines "$path" lines; then
+				cutpaste_fail "cutpaste: cannot read '$path'"
+			fi
+		fi
+	fi
+
+	local out=()
+	local idx kind name command end_idx
+	local command_lines=()
+	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
+		command=""
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && cutpaste_blockish_match "$name" "${patterns[@]}"; then
+			if [ -z "$command" ]; then
+				out+=("${lines[$idx]}")
+				continue
+			fi
+			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
+				out+=("${lines[$idx]}")
+				continue
+			fi
+			if ! cutpaste_run_command_lines "$command" command_lines; then
+				cutpaste_fail "cutpaste: command failed for block '$name'"
+			fi
+			out+=("${lines[$idx]}")
+			if [ "${#command_lines[@]}" -gt 0 ]; then
+				out+=("${command_lines[@]}")
+			fi
+			out+=("${lines[$end_idx]}")
+			idx="$end_idx"
+			continue
+		fi
+		out+=("${lines[$idx]}")
+	done
+
+	local original_file result_file
+	original_file="$(mktemp)"
+	result_file="$(mktemp)"
+	cutpaste_lines_to_text lines >"$original_file"
+	cutpaste_lines_to_text out >"$result_file"
+
+	if [ "$dry" = "1" ]; then
+		cutpaste_show_diff "$path" "$original_file" "$result_file"
+	elif [ "$overwrite" = "1" ]; then
+		cutpaste_write_overwrite "$path" "$result_file"
+	else
+		cat "$result_file"
+	fi
+
+	rm -f "$original_file" "$result_file"
+}
+
 cutpaste_set() {
 	local path="$1"
 	local block="$2"
 	local value="${3:-}"
-	local overwrite="$4"
-	local dry="$5"
+	local value_supplied="$4"
+	local overwrite="$5"
+	local dry="$6"
 	local lines=()
 
 	if [ "$path" = "-" ]; then
@@ -280,15 +408,31 @@ cutpaste_set() {
 		fi
 	fi
 
-	cutpaste_read_value_lines "$value" CUTPASTE_VALUE_LINES
+	if [ "$value_supplied" = "1" ]; then
+		cutpaste_read_value_lines "$value" CUTPASTE_VALUE_LINES
+	elif [ "$path" != "-" ]; then
+		local command=""
+		if command="$(cutpaste_find_block_command lines "$block")"; then
+			if ! cutpaste_run_command_lines "$command" CUTPASTE_VALUE_LINES; then
+				cutpaste_fail "cutpaste: command failed for block '$block'"
+			fi
+		else
+			value="$(cat)"
+			cutpaste_read_value_lines "$value" CUTPASTE_VALUE_LINES
+		fi
+	else
+		value="$(cat)"
+		cutpaste_read_value_lines "$value" CUTPASTE_VALUE_LINES
+	fi
 	CUTPASTE_BLOCK_FOUND=0
 	CUTPASTE_NEW_START="$CUTPASTE_SEP START:$block"
 	CUTPASTE_NEW_END="$CUTPASTE_SEP END:$block"
 
 	local out=()
-	local idx kind name end_idx
+	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
-		if cutpaste_parse_separator "${lines[$idx]}" kind name && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
+		command=""
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				out+=("${lines[$idx]}")
 				continue
@@ -386,15 +530,15 @@ main() {
 		local block="$2"
 		shift 2
 		local value=""
+		local value_supplied="0"
 		if [ "$path" = "-" ] && [ "$#" -eq 0 ]; then
 			cutpaste_fail "cutpaste: set with PATH='-' requires VALUE as an argument"
 		fi
 		if [ "$#" -gt 0 ]; then
 			value="$1"
-		else
-			value="$(cat)"
+			value_supplied="1"
 		fi
-		cutpaste_set "$path" "$block" "$value" "$overwrite" "$dry"
+		cutpaste_set "$path" "$block" "$value" "$value_supplied" "$overwrite" "$dry"
 		;;
 	cut)
 		local overwrite="0"
@@ -465,6 +609,41 @@ main() {
 		local path="$1"
 		shift
 		cutpaste_rewrite "$path" strip "$overwrite" "$dry" "$@"
+		;;
+	update)
+		local overwrite="0"
+		local dry="0"
+		while [ "$#" -gt 0 ]; do
+			case "$1" in
+			-w | --overwrite)
+				overwrite="1"
+				shift
+				;;
+			-d | --dry)
+				dry="1"
+				shift
+				;;
+			-h | --help)
+				cutpaste_usage
+				return 0
+				;;
+			--)
+				shift
+				break
+				;;
+			-) break ;;
+			-*)
+				cutpaste_fail "cutpaste: unknown option for update: $1"
+				;;
+			*)
+				break
+				;;
+			esac
+		done
+		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: update requires PATH"
+		local path="$1"
+		shift
+		cutpaste_update "$path" "$overwrite" "$dry" "$@"
 		;;
 	*)
 		cutpaste_usage >&2

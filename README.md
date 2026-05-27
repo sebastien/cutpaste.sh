@@ -17,6 +17,21 @@ alphanumeric string (with `.`, `-` and `_` supported).
 --8<-- END:BLOCK
 ```
 
+Blocks content can also be generated from commands:
+
+```
+--8<-- START:BLOCK -- COMMAND
+--8<-- END:BLOCK
+```
+
+For instance, if you want to include a file in a `.jsonc` file:
+
+```jsonc
+{
+  // --8<-- START:include -- cat ./src/json/preamble.json
+  // --8<-- END:include
+```
+
 `cutpaste` works great when:
 
 - You want to inject and update content in a given file without touching the rest
@@ -47,11 +62,12 @@ In the following:
 
 Commands:
 
-- `cutpaste list PATH [BLOCKISH…]` lists all blocks at the given path
+- `cutpaste list PATH [BLOCKISH…]` lists all blocks at the given path (shows command if present)
 - `cutpaste get PATH BLOCK` get the current value for the given block
 - `cutpaste set PATH BLOCK [VALUE]` replaces the block with the given value (or stdin), outputting the result
 - `cutpaste cut PATH [BLOCKISH…]` removes the block altogether, including separator
 - `cutpaste strip PATH [BLOCKISH…]` removes the block altogether, excluding separator
+- `cutpaste update PATH [BLOCKISH…]` updates all command blocks
 - `cutpaste help` shows the help message
 - `cutpaste --version` shows the current version
 
@@ -74,8 +90,9 @@ For `cutpaste` to recognise a separator, it must:
 
 - Stand on a single line
 - Match on a line with only spaces or non-alphanumeric characters as prefix
-- Have only spaces or nothing as suffix
+- Have only spaces or nothing as suffix (`END` only, `START` can contain a command)
 - `BLOCK` must be alphanumeric, no whitespace, `._-` allowed
+- `command` can be any shell command that fits on one line, will be run as-is
 - `--8<--` can contain as many prefix or suffix `-`, but at least two
 
 For `cutpaste` to recognise a block, it must:
