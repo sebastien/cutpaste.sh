@@ -17,17 +17,18 @@ cutpaste_usage() {
 cutpaste $CUTPASTE_VERSION ― cut/paste/replace delimited blocks of text in files
 
 Usage:
-  cutpaste list PATH [BLOCKISH...]
-  cutpaste get PATH BLOCK
-  cutpaste set PATH BLOCK [VALUE]
-  cutpaste cut PATH [BLOCKISH...]
-  cutpaste strip PATH [BLOCKISH...]
-  cutpaste update PATH [BLOCKISH...]
+  cutpaste [update] [PATH] [BLOCKISH...]
+  cutpaste get [PATH] BLOCK
+  cutpaste set [PATH] BLOCK [VALUE]
+  cutpaste cut [PATH] [BLOCKISH...]
+  cutpaste strip [PATH] [BLOCKISH...]
+  cutpaste update [PATH] [BLOCKISH...]
   cutpaste help
   cutpaste --version
 
 Options:
   -h, --help
+  -i, --indent      prefix replaced/generated lines with the block indentation
   -w, --overwrite   overwrite the input file for set/cut/strip
   -d, --dry         show a unified diff instead of writing or printing content
 EOF
@@ -100,7 +101,7 @@ cutpaste_parse_separator() {
 		# shellcheck disable=SC2178
 		local -n _command="$command_ref"
 	fi
-	local re='^[[:space:][:punct:]]*-{2,}8<-{2,}[[:space:]]+(START|END):([A-Za-z0-9._-]+)([[:space:]]+--[[:space:]]+(.*))?[[:space:]]*$'
+	local re='^[[:space:][:punct:]]*-{2,}8<-{2,}[[:space:]]+(START|BEGIN|END):([A-Za-z0-9._-]+)([[:space:]]+--[[:space:]]+(.*))?[[:space:]]*$'
 
 	if [[ $line =~ $re ]]; then
 		_kind="${BASH_REMATCH[1]}"
@@ -115,6 +116,16 @@ cutpaste_parse_separator() {
 	fi
 
 	return 1
+}
+
+cutpaste_is_start_kind() {
+	local kind="$1"
+	[ "$kind" = "START" ] || [ "$kind" = "BEGIN" ]
+}
+
+cutpaste_is_explicit_path() {
+	local path="$1"
+	[ "$path" = "-" ] || [ -e "$path" ]
 }
 
 cutpaste_run_command_lines() {
@@ -150,6 +161,46 @@ cutpaste_blockish_match() {
 	return 1
 }
 
+cutpaste_line_indent() {
+	local line="$1"
+
+	if [[ $line =~ ^([[:space:]]*) ]]; then
+		printf '%s\n' "${BASH_REMATCH[1]}"
+	fi
+}
+
+cutpaste_common_indent() {
+	local start_line="$1"
+	local end_line="$2"
+	local start_indent=""
+	local end_indent=""
+	local common=""
+
+	start_indent="$(cutpaste_line_indent "$start_line")"
+	end_indent="$(cutpaste_line_indent "$end_line")"
+	common="$start_indent"
+
+	while [ -n "$common" ] && [ "${end_indent#"$common"}" = "$end_indent" ]; do
+		common="${common%?}"
+	done
+
+	printf '%s\n' "$common"
+}
+
+cutpaste_prefix_lines() {
+	local prefix="$1"
+	# shellcheck disable=SC2178
+	local -n _in="$2"
+	# shellcheck disable=SC2178
+	local -n _out="$3"
+	local line
+
+	_out=()
+	for line in "${_in[@]}"; do
+		_out+=("${prefix}${line}")
+	done
+}
+
 cutpaste_find_block_end() {
 	local -n _lines="$1"
 	local start_idx="$2"
@@ -179,7 +230,7 @@ cutpaste_list() {
 	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
 		command=""
-		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ]; then
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind"; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				continue
 			fi
@@ -210,7 +261,7 @@ cutpaste_get() {
 	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
 		command=""
-		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind" && [ "$name" = "$block" ]; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				break
 			fi
@@ -231,7 +282,7 @@ cutpaste_find_block_command() {
 
 	for ((idx = 0; idx < ${#_lines[@]}; idx++)); do
 		command=""
-		if cutpaste_parse_separator "${_lines[$idx]}" kind name command && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
+		if cutpaste_parse_separator "${_lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind" && [ "$name" = "$block" ]; then
 			if ! end_idx="$(cutpaste_find_block_end "$1" "$idx" "$name")"; then
 				return 1
 			fi
@@ -270,7 +321,7 @@ cutpaste_rewrite() {
 	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
 		command=""
-		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && cutpaste_blockish_match "$name" "${patterns[@]}"; then
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind" && cutpaste_blockish_match "$name" "${patterns[@]}"; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				out+=("${lines[$idx]}")
 				continue
@@ -329,7 +380,8 @@ cutpaste_update() {
 	local path="$1"
 	local overwrite="$2"
 	local dry="$3"
-	shift 3
+	local indent="$4"
+	shift 4
 	local patterns=("$@")
 	local lines=()
 	if [ "$path" = "-" ]; then
@@ -349,7 +401,7 @@ cutpaste_update() {
 	local command_lines=()
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
 		command=""
-		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && cutpaste_blockish_match "$name" "${patterns[@]}"; then
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind" && cutpaste_blockish_match "$name" "${patterns[@]}"; then
 			if [ -z "$command" ]; then
 				out+=("${lines[$idx]}")
 				continue
@@ -360,6 +412,13 @@ cutpaste_update() {
 			fi
 			if ! cutpaste_run_command_lines "$command" command_lines; then
 				cutpaste_fail "cutpaste: command failed for block '$name'"
+			fi
+			if [ "$indent" = "1" ] && [ "${#command_lines[@]}" -gt 0 ]; then
+				local command_indent=""
+				local -a indented_command_lines=()
+				command_indent="$(cutpaste_common_indent "${lines[$idx]}" "${lines[$end_idx]}")"
+				cutpaste_prefix_lines "$command_indent" command_lines indented_command_lines
+				command_lines=("${indented_command_lines[@]}")
 			fi
 			out+=("${lines[$idx]}")
 			if [ "${#command_lines[@]}" -gt 0 ]; then
@@ -396,6 +455,7 @@ cutpaste_set() {
 	local value_supplied="$4"
 	local overwrite="$5"
 	local dry="$6"
+	local indent="$7"
 	local lines=()
 
 	if [ "$path" = "-" ]; then
@@ -410,6 +470,15 @@ cutpaste_set() {
 
 	if [ "$value_supplied" = "1" ]; then
 		cutpaste_read_value_lines "$value" CUTPASTE_VALUE_LINES
+	elif [ "$path" = "-" ]; then
+		local command=""
+		if command="$(cutpaste_find_block_command lines "$block")"; then
+			if ! cutpaste_run_command_lines "$command" CUTPASTE_VALUE_LINES; then
+				cutpaste_fail "cutpaste: command failed for block '$block'"
+			fi
+		else
+			cutpaste_fail "cutpaste: set with PATH='-' requires VALUE as an argument unless the block has a command"
+		fi
 	elif [ "$path" != "-" ]; then
 		local command=""
 		if command="$(cutpaste_find_block_command lines "$block")"; then
@@ -424,6 +493,28 @@ cutpaste_set() {
 		value="$(cat)"
 		cutpaste_read_value_lines "$value" CUTPASTE_VALUE_LINES
 	fi
+
+	local -a value_lines=("${CUTPASTE_VALUE_LINES[@]}")
+	if [ "$indent" = "1" ] && [ "${#value_lines[@]}" -gt 0 ]; then
+		local value_indent=""
+		local -a indented_value_lines=()
+		if [ "${#lines[@]}" -gt 0 ]; then
+			local idx kind name command end_idx
+			for ((idx = 0; idx < ${#lines[@]}; idx++)); do
+				command=""
+				if cutpaste_parse_separator "${lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind" && [ "$name" = "$block" ]; then
+					if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
+						break
+					fi
+					value_indent="$(cutpaste_common_indent "${lines[$idx]}" "${lines[$end_idx]}")"
+					break
+				fi
+			done
+		fi
+		cutpaste_prefix_lines "$value_indent" value_lines indented_value_lines
+		value_lines=("${indented_value_lines[@]}")
+	fi
+
 	CUTPASTE_BLOCK_FOUND=0
 	CUTPASTE_NEW_START="$CUTPASTE_SEP START:$block"
 	CUTPASTE_NEW_END="$CUTPASTE_SEP END:$block"
@@ -432,15 +523,15 @@ cutpaste_set() {
 	local idx kind name command end_idx
 	for ((idx = 0; idx < ${#lines[@]}; idx++)); do
 		command=""
-		if cutpaste_parse_separator "${lines[$idx]}" kind name command && [ "$kind" = "START" ] && [ "$name" = "$block" ]; then
+		if cutpaste_parse_separator "${lines[$idx]}" kind name command && cutpaste_is_start_kind "$kind" && [ "$name" = "$block" ]; then
 			if ! end_idx="$(cutpaste_find_block_end lines "$idx" "$name")"; then
 				out+=("${lines[$idx]}")
 				continue
 			fi
 			CUTPASTE_BLOCK_FOUND=1
 			out+=("${lines[$idx]}")
-			if [ "${#CUTPASTE_VALUE_LINES[@]}" -gt 0 ]; then
-				out+=("${CUTPASTE_VALUE_LINES[@]}")
+			if [ "${#value_lines[@]}" -gt 0 ]; then
+				out+=("${value_lines[@]}")
 			fi
 			out+=("${lines[$end_idx]}")
 			idx="$end_idx"
@@ -451,8 +542,8 @@ cutpaste_set() {
 
 	if [ "$CUTPASTE_BLOCK_FOUND" = "0" ]; then
 		out+=("$CUTPASTE_NEW_START")
-		if [ "${#CUTPASTE_VALUE_LINES[@]}" -gt 0 ]; then
-			out+=("${CUTPASTE_VALUE_LINES[@]}")
+		if [ "${#value_lines[@]}" -gt 0 ]; then
+			out+=("${value_lines[@]}")
 		fi
 		out+=("$CUTPASTE_NEW_END")
 	fi
@@ -475,29 +566,43 @@ cutpaste_set() {
 }
 
 main() {
-	local cmd="${1:-}"
-	shift || true
+	local cmd="${1:-update}"
+	if [ "$#" -gt 0 ]; then
+		shift
+	fi
 
 	case "$cmd" in
-	-h | --help | help | "")
+	-h | --help | help)
 		cutpaste_usage
 		;;
 	--version | version)
 		printf 'cutpaste %s\n' "$CUTPASTE_VERSION"
 		;;
 	list)
-		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: list requires PATH"
-		local path="$1"
-		shift
+		local path="-"
+		if [ "$#" -gt 0 ] && cutpaste_is_explicit_path "$1"; then
+			path="$1"
+			shift
+		fi
 		cutpaste_list "$path" "$@"
 		;;
 	get)
-		[ "$#" -eq 2 ] || cutpaste_fail "cutpaste: get requires PATH and BLOCK"
-		cutpaste_get "$1" "$2"
+		local path="-"
+		local block=""
+		if [ "$#" -eq 1 ]; then
+			block="$1"
+		elif [ "$#" -eq 2 ] && cutpaste_is_explicit_path "$1"; then
+			path="$1"
+			block="$2"
+		else
+			cutpaste_fail "cutpaste: get requires BLOCK or PATH and BLOCK"
+		fi
+		cutpaste_get "$path" "$block"
 		;;
 	set)
 		local overwrite="0"
 		local dry="0"
+		local indent="0"
 		while [ "$#" -gt 0 ]; do
 			case "$1" in
 			-w | --overwrite)
@@ -506,6 +611,10 @@ main() {
 				;;
 			-d | --dry)
 				dry="1"
+				shift
+				;;
+			-i | --indent)
+				indent="1"
 				shift
 				;;
 			-h | --help)
@@ -525,20 +634,28 @@ main() {
 				;;
 			esac
 		done
-		[ "$#" -ge 2 ] || cutpaste_fail "cutpaste: set requires PATH and BLOCK"
-		local path="$1"
-		local block="$2"
-		shift 2
+		local path="-"
+		local block=""
 		local value=""
 		local value_supplied="0"
-		if [ "$path" = "-" ] && [ "$#" -eq 0 ]; then
-			cutpaste_fail "cutpaste: set with PATH='-' requires VALUE as an argument"
-		fi
-		if [ "$#" -gt 0 ]; then
-			value="$1"
+		if [ "$#" -eq 0 ]; then
+			cutpaste_fail "cutpaste: set requires BLOCK"
+		elif [ "$#" -eq 1 ]; then
+			block="$1"
+		elif [ "$#" -eq 2 ] && ! cutpaste_is_explicit_path "$1"; then
+			block="$1"
+			value="$2"
 			value_supplied="1"
+		else
+			path="$1"
+			block="$2"
+			shift 2
+			if [ "$#" -gt 0 ]; then
+				value="$1"
+				value_supplied="1"
+			fi
 		fi
-		cutpaste_set "$path" "$block" "$value" "$value_supplied" "$overwrite" "$dry"
+		cutpaste_set "$path" "$block" "$value" "$value_supplied" "$overwrite" "$dry" "$indent"
 		;;
 	cut)
 		local overwrite="0"
@@ -570,9 +687,11 @@ main() {
 				;;
 			esac
 		done
-		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: cut requires PATH"
-		local path="$1"
-		shift
+		local path="-"
+		if [ "$#" -gt 0 ] && cutpaste_is_explicit_path "$1"; then
+			path="$1"
+			shift
+		fi
 		cutpaste_rewrite "$path" cut "$overwrite" "$dry" "$@"
 		;;
 	strip)
@@ -605,14 +724,17 @@ main() {
 				;;
 			esac
 		done
-		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: strip requires PATH"
-		local path="$1"
-		shift
+		local path="-"
+		if [ "$#" -gt 0 ] && cutpaste_is_explicit_path "$1"; then
+			path="$1"
+			shift
+		fi
 		cutpaste_rewrite "$path" strip "$overwrite" "$dry" "$@"
 		;;
 	update)
 		local overwrite="0"
 		local dry="0"
+		local indent="0"
 		while [ "$#" -gt 0 ]; do
 			case "$1" in
 			-w | --overwrite)
@@ -621,6 +743,10 @@ main() {
 				;;
 			-d | --dry)
 				dry="1"
+				shift
+				;;
+			-i | --indent)
+				indent="1"
 				shift
 				;;
 			-h | --help)
@@ -640,10 +766,12 @@ main() {
 				;;
 			esac
 		done
-		[ "$#" -ge 1 ] || cutpaste_fail "cutpaste: update requires PATH"
-		local path="$1"
-		shift
-		cutpaste_update "$path" "$overwrite" "$dry" "$@"
+		local path="-"
+		if [ "$#" -gt 0 ] && cutpaste_is_explicit_path "$1"; then
+			path="$1"
+			shift
+		fi
+		cutpaste_update "$path" "$overwrite" "$dry" "$indent" "$@"
 		;;
 	*)
 		cutpaste_usage >&2

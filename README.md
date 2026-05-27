@@ -9,8 +9,9 @@
 
 
 `cutpaste` is small CLI tool to cut/paste text information within placeholders,
-typically in the shape of `--8<-- START:$BLOCK` where `$BLOCK` is a non-whitespace
-alphanumeric string (with `.`, `-` and `_` supported).
+typically in the shape of `--8<-- START:$BLOCK` or `--8<-- BEGIN:$BLOCK` where
+`$BLOCK` is a non-whitespace alphanumeric string (with `.`, `-` and `_`
+supported).
 
 ```
 --8<-- START:BLOCK
@@ -28,7 +29,7 @@ For instance, if you want to include a file in a `.jsonc` file:
 
 ```jsonc
 {
-  // --8<-- START:include -- cat ./src/json/preamble.json
+  // --8<-- BEGIN:include -- cat ./src/json/preamble.json
   // --8<-- END:include
 ```
 
@@ -57,23 +58,25 @@ env -C cutpaste.sh make install
 
 In the following:
 
-- `PATH` is a pathname, with `-` for `stdin`
+- `PATH` is a pathname, with `-` for `stdin` and defaulting to `stdin` when omitted
 - `BLOCKISH` is the name of a block, with wildcards supported
 
 Commands:
 
-- `cutpaste list PATH [BLOCKISH…]` lists all blocks at the given path (shows command if present)
-- `cutpaste get PATH BLOCK` get the current value for the given block
-- `cutpaste set PATH BLOCK [VALUE]` replaces the block with the given value (or stdin), outputting the result
-- `cutpaste cut PATH [BLOCKISH…]` removes the block altogether, including separator
-- `cutpaste strip PATH [BLOCKISH…]` removes the block altogether, excluding separator
-- `cutpaste update PATH [BLOCKISH…]` updates all command blocks
+- `cutpaste [update] [PATH] [BLOCKISH…]` updates all command blocks, and is the default when no command is given
+- `cutpaste list [PATH] [BLOCKISH…]` lists all blocks at the given path (shows command if present)
+- `cutpaste get [PATH] BLOCK` get the current value for the given block
+- `cutpaste set [PATH] BLOCK [VALUE]` replaces the block with the given value (or stdin), outputting the result
+- `cutpaste cut [PATH] [BLOCKISH…]` removes the block altogether, including separator
+- `cutpaste strip [PATH] [BLOCKISH…]` removes the block altogether, excluding separator
+- `cutpaste update [PATH] [BLOCKISH…]` updates all command blocks
 - `cutpaste help` shows the help message
 - `cutpaste --version` shows the current version
 
 Commands support the following options:
 
 - `-h|--help` shows the command help message
+- `-i|--indent` prefixes replaced or generated lines with the block indentation
 - `-w|--overwrite` overwrites the input file in place for `set`, `cut` and `strip`
 - `-d|--dry` performs a dry run and prints a unified diff instead of writing or returning content
 
@@ -82,6 +85,7 @@ Notes:
 - `PATH` may be `-` to read from stdin
 - `set - BLOCK VALUE` is supported for stdin input
 - `set - BLOCK` without `VALUE` is rejected because stdin cannot safely provide both the document and the replacement value
+- `-i|--indent` uses the common leading whitespace from the block's `START` and `END` separators to indent replacement or generated content
 
 
 ## Syntax
@@ -90,14 +94,13 @@ For `cutpaste` to recognise a separator, it must:
 
 - Stand on a single line
 - Match on a line with only spaces or non-alphanumeric characters as prefix
-- Have only spaces or nothing as suffix (`END` only, `START` can contain a command)
+- Have only spaces or nothing as suffix (`END` only, `START` or `BEGIN` can contain a command)
 - `BLOCK` must be alphanumeric, no whitespace, `._-` allowed
 - `command` can be any shell command that fits on one line, will be run as-is
 - `--8<--` can contain as many prefix or suffix `-`, but at least two
 
 For `cutpaste` to recognise a block, it must:
 
-- Start with a `START` separator with a `$BLOCK`
-- No be contained within another `START` block separator
+- Start with a `START` or `BEGIN` separator with a `$BLOCK`
+- Not be contained within another `START` or `BEGIN` block separator
 - Explicitly end with an `END` separator with the same `$BLOCK` name.
-

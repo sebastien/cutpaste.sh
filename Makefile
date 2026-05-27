@@ -4,7 +4,6 @@ MISE ?= mise
 MISE_EXEC=$(MISE) exec --
 USER?=$(shell whoami)
 HOME?=/home/$(USER)
-
 test:
 	@$(MISE_EXEC) bash tests/harness.sh
 

@@ -11,3 +11,7 @@ cutpaste_fixture_sample
 test-case "reads block content"
 output="$("$BASE_PATH/bin/cutpaste" get sample.txt block1)"
 test-expect "$output" $'x\n--8<-- START:inner\ny'
+
+test-case "defaults path to stdin"
+output="$(cat sample.txt | "$BASE_PATH/bin/cutpaste" get block1)"
+test-expect "$output" $'x\n--8<-- START:inner\ny'

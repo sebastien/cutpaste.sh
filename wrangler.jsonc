@@ -1,0 +1,130 @@
+// NOTE: To test locally with `wrangler dev --test-scheduled`:
+// curl -v "http://localhost:8787/__scheduled?cron=0+13+*+*+*&time=1779800400"
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// Deploy with `--env <name>`. Cloudflare publishes named environments as
+	// `aos-workflow-fibery-relay-<environment>`.
+	"name": "aos-workflow-fibery-relay",
+	"main": "src/ts/index.ts",
+	"compatibility_date": "2026-05-25",
+	"upload_source_maps": true,
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"alias": {
+		"@sdk": "../../deps/sdk/src/ts/sdk",
+		"@sdk/integrations/fibery": "../../deps/sdk/src/ts/sdk/integrations/fibery/export.ts",
+		"@sdk/integrations/fibery/export": "../../deps/sdk/src/ts/sdk/integrations/fibery/export.ts",
+		"@sdk/integrations/fibery/snapshot": "../../deps/sdk/src/ts/sdk/integrations/fibery/snapshot.ts",
+		"@sdk/integrations/fibery/helpers": "../../deps/sdk/src/ts/sdk/integrations/fibery/helpers.ts",
+		"@sdk/integrations/fibery/model": "../../deps/sdk/src/ts/sdk/integrations/fibery/model.ts",
+		"@sdk/integrations/fibery/runtime": "../../deps/sdk/src/ts/sdk/integrations/fibery/runtime.ts",
+		"@sdk/features/auth": "../../deps/sdk/src/ts/sdk/features/auth",
+		"@sdk/features/auth/tokens": "../../deps/sdk/src/ts/sdk/features/auth/tokens.ts",
+		"@sdk/features/auth/capabilities": "../../deps/sdk/src/ts/sdk/features/auth/capabilities.ts",
+		"@sdk/features/auth/jwt": "../../deps/sdk/src/ts/sdk/features/auth/jwt.ts",
+		"@sdk/features/logging": "../../deps/sdk/src/ts/sdk/features/logging/index.ts",
+		"@sdk/utils/async": "../../deps/sdk/src/ts/sdk/utils/async.ts",
+		"@sdk/utils/env": "../../deps/sdk/src/ts/sdk/utils/env.ts",
+		"@sdk/fmt/gzip": "../../deps/sdk/src/ts/sdk/fmt/gzip.ts"
+	},
+	"observability": {
+		"enabled": true
+	},
+	// Shared binding shape for local typing. Normal operation should target a
+	// named environment rather than deploying the unsuffixed root worker.
+	"secrets": {
+		"required": ["FIBERY_TOKEN", "MINTING_TOKEN"]
+	},
+	"r2_buckets": [
+		{
+			"binding": "STORAGE_INPUTS",
+			"bucket_name": "aos-worfklow-inputs-fin-dev-main"
+		},
+		{
+			"binding": "STORAGE_OUTPUTS",
+			"bucket_name": "aos-worfklow-outputs-fin-dev-main"
+		}
+	],
+	"env": {
+		"development": {
+			"workers_dev": true,
+			// --8<-- BEGIN:DEVELOPMENT -- make worker-config@development
+			"vars": {
+				"ENVIRONMENT": "development",
+				"STORAGE_INPUTS_NAME": "aos-worfklow-inputs-fin-dev-main",
+				"STORAGE_OUTPUTS_NAME": "aos-worfklow-outputs-fin-dev-main"
+			},
+			"secrets": {
+				"required": ["FIBERY_TOKEN", "MINTING_TOKEN"]
+			},
+			"triggers": {
+				"crons": ["0 13 * * *"]
+			},
+			"r2_buckets": [
+				{
+					"binding": "STORAGE_INPUTS",
+					"bucket_name": "aos-worfklow-inputs-fin-dev-main"
+				},
+				{
+					"binding": "STORAGE_OUTPUTS",
+					"bucket_name": "aos-worfklow-outputs-fin-dev-main"
+				}
+			]
+			// --8<-- END:DEVELOPMENT
+		},
+		"staging": {
+			"workers_dev": true,
+			// --8<-- BEGIN:STAGING -- make worker-config@staging
+			"vars": {
+				"ENVIRONMENT": "staging",
+				"STORAGE_INPUTS_NAME": "aos-worfklow-inputs-fin-sta-main",
+				"STORAGE_OUTPUTS_NAME": "aos-worfklow-outputs-fin-sta-main"
+			},
+			"secrets": {
+				"required": ["FIBERY_TOKEN", "MINTING_TOKEN"]
+			},
+			"triggers": {
+				"crons": ["0 13 * * *"]
+			},
+			"r2_buckets": [
+				{
+					"binding": "STORAGE_INPUTS",
+					"bucket_name": "aos-worfklow-inputs-fin-sta-main"
+				},
+				{
+					"binding": "STORAGE_OUTPUTS",
+					"bucket_name": "aos-worfklow-outputs-fin-sta-main"
+				}
+			]
+			// --8<-- END:STAGING -- make worker-config@staging
+		},
+		"production": {
+			// --8<-- BEGIN:PRODUCTION -- make worker-config@production
+			"vars": {
+				"ENVIRONMENT": "production",
+				"STORAGE_INPUTS_NAME": "aos-worfklow-inputs-fin-prod-main",
+				"STORAGE_OUTPUTS_NAME": "aos-worfklow-outputs-fin-prod-main"
+			},
+			"secrets": {
+				"required": ["FIBERY_TOKEN", "MINTING_TOKEN"]
+			},
+			"triggers": {
+				// Cron Triggers are UTC-only. This runs at 13:00 UTC, which maps to
+				// 1:00 AM Pacific/Auckland during NZ standard time.
+				"crons": ["0 13 * * *"]
+			},
+			"r2_buckets": [
+				{
+					"binding": "STORAGE_INPUTS",
+					"bucket_name": "aos-worfklow-inputs-fin-prod-main"
+				},
+				{
+					"binding": "STORAGE_OUTPUTS",
+					"bucket_name": "aos-worfklow-outputs-fin-prod-main"
+				}
+			]
+			// --8<-- END:PRODUCTION
+		}
+	}
+}

@@ -16,6 +16,10 @@ test-case "supports stdin input"
 output="$(cat sample.txt | "$BASE_PATH/bin/cutpaste" set - block1 NEW)"
 test-expect "$output" $'a\n--8<-- START:block1\nNEW\n--8<-- END:block1\nb\n# --8<-- START:block2\nc\n# --8<-- END:block2'
 
+test-case "defaults path to stdin"
+output="$(cat sample.txt | "$BASE_PATH/bin/cutpaste" set block1 NEW)"
+test-expect "$output" $'a\n--8<-- START:block1\nNEW\n--8<-- END:block1\nb\n# --8<-- START:block2\nc\n# --8<-- END:block2'
+
 test-case "dry runs with unified diff"
 output="$("$BASE_PATH/bin/cutpaste" set -d sample.txt block1 NEW)"
 test-substring "$output" "--- sample.txt (original)" "+++ sample.txt (updated)" "-x" "+NEW"
@@ -25,3 +29,12 @@ output="$("$BASE_PATH/bin/cutpaste" set -w sample.txt block1 NEW)"
 test-expect "$output" ""
 output="$(cat sample.txt)"
 test-expect "$output" $'a\n--8<-- START:block1\nNEW\n--8<-- END:block1\nb\n# --8<-- START:block2\nc\n# --8<-- END:block2'
+
+test-case "indents replaced block content"
+cat >indented.txt <<'EOF'
+  --8<-- START:block1
+  old
+  --8<-- END:block1
+EOF
+output="$("$BASE_PATH/bin/cutpaste" set -i indented.txt block1 $'first\nsecond')"
+test-expect "$output" $'  --8<-- START:block1\n  first\n  second\n  --8<-- END:block1'
